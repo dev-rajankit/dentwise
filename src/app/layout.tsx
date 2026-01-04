@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
-
+import UserSync from "@/components/UserSync";
 import { Toaster } from "sonner";
 
 const geistSans = Geist({
@@ -44,6 +44,7 @@ export default function RootLayout({
             {/* this is done in the home page component */}
             {/* <UserSync /> */}
             <Toaster />
+            <UserSync/>
             {children}
           </body>
         </html>
