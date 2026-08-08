@@ -1,6 +1,6 @@
 import { useAvailableDoctors } from "@/hooks/use-doctors";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
-import Image from "next/image";
+import DoctorAvatar from "@/components/DoctorAvatar";
 import { MapPinIcon, PhoneIcon, StarIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -43,21 +43,11 @@ function DoctorSelectionStep({
           >
             <CardHeader className="pb-4">
               <div className="flex items-start gap-4">
-                {dentist.imageUrl ? (
-                  <Image
-                    src={dentist.imageUrl}
-                    alt={dentist.name}
-                    width={64}
-                    height={64}
-                    className="w-16 h-16 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-gray-200 flex items-center justify-center">
-                    <span className="text-2xl font-semibold text-gray-500">
-                      {dentist.name.charAt(0)}
-                    </span>
-                  </div>
-                )}
+                <DoctorAvatar
+                  name={dentist.name}
+                  imageUrl={dentist.imageUrl}
+                  className="size-16 text-xl"
+                />
                 <div className="flex-1">
                   <CardTitle className="text-lg">{dentist.name}</CardTitle>
                   <CardDescription className="text-primary font-medium">

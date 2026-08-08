@@ -5,6 +5,7 @@ import DoctorSelectionStep from "@/components/appointments/DoctorSelectionStep";
 import ProgressSteps from "@/components/appointments/ProgressSteps";
 import TimeSelectionStep from "@/components/appointments/TimeSelectionStep";
 import Navbar from "@/components/Navbar";
+import DoctorAvatar from "@/components/DoctorAvatar";
 import { useBookAppointment, useUserAppointments } from "@/hooks/use-appointment";
 import { APPOINTMENT_TYPES } from "@/lib/utils";
 import { format } from "date-fns";
@@ -170,19 +171,11 @@ function AppointmentsPage() {
           className="bg-card border border-border rounded-lg p-4 shadow-sm transition hover:scale-[1.02] hover:shadow-md"
         >
           <div className="flex items-center gap-3 mb-3">
-            <div className="size-10 bg-primary/10 rounded-full flex items-center justify-center overflow-hidden">
-              {appointment.doctorImageUrl ? (
-                <img
-                  src={appointment.doctorImageUrl}
-                  alt={appointment.doctorName}
-                  className="size-10 rounded-full object-cover"
-                />
-              ) : (
-                <span className="text-sm font-semibold text-primary">
-                  {appointment.doctorName?.charAt(0)}
-                </span>
-              )}
-            </div>
+            <DoctorAvatar
+              name={appointment.doctorName}
+              imageUrl={appointment.doctorImageUrl}
+              className="size-10 text-xs"
+            />
 
             <div>
               <p className="font-medium text-sm text-foreground">
