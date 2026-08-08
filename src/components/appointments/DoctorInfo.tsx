@@ -1,5 +1,5 @@
 import { useAvailableDoctors } from "@/hooks/use-doctors";
-import Image from "next/image";
+import DoctorAvatar from "@/components/DoctorAvatar";
 
 function DoctorInfo({ doctorId }: { doctorId: string }) {
   const { data: doctors = [] } = useAvailableDoctors();
@@ -9,13 +9,7 @@ function DoctorInfo({ doctorId }: { doctorId: string }) {
 
   return (
     <div className="flex items-center gap-4">
-      <Image
-        src={doctor.imageUrl!}
-        alt={doctor.name}
-        width={48}
-        height={48}
-        className="w-12 h-12 rounded-full object-cover"
-      />
+      <DoctorAvatar name={doctor.name} imageUrl={doctor.imageUrl} className="size-12 text-sm" />
       <div>
         <h3 className="font-medium">{doctor.name}</h3>
         <p className="text-sm text-muted-foreground">{doctor.speciality || "General Dentistry"}</p>

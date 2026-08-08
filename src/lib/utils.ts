@@ -5,12 +5,14 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Was avatar.iran.liara.run, which is unreachable (DNS resolves, connection fails)
+// and left every doctor showing a broken-image glyph. DiceBear is CDN-backed and
+// deterministic on `seed`, so a given doctor always gets the same face.
 export function generateAvatar(name: string, gender: "MALE" | "FEMALE") {
   const username = name.replace(/\s+/g, "").toLowerCase();
-  const base = "https://avatar.iran.liara.run/public";
-  if (gender === "FEMALE") return `${base}/girl?username=${username}`;
-  // default to boy
-  return `${base}/boy?username=${username}`;
+  // gender is folded into the seed so the two never collide on one name
+  const seed = encodeURIComponent(`${username}-${gender.toLowerCase()}`);
+  return `https://api.dicebear.com/9.x/avataaars/svg?seed=${seed}`;
 }
 
 // phone formatting function for US numbers - ai generated 🎉
