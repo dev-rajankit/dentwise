@@ -80,7 +80,13 @@ function AppointmentsPage() {
           // Reset form
           resetBookingForm();
         },
-        onError: (error) => toast.error(`Failed to book appointment: ${error.message}`),
+        onError: (error) => {
+          toast.error(error.message);
+          // the slot was taken while the user was on the confirmation step -
+          // send them back to pick a new time, with fresh availability
+          setSelectedTime("");
+          setCurrentStep(2);
+        },
       }
     );
   };

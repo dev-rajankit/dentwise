@@ -69,6 +69,12 @@ model Appointment {
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
   doctor Doctor @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
+  // a doctor can only have one appointment per date + time slot.
+  // this is the real guard against double booking - the app-level check
+  // above it can always lose a race, the database cannot.
+  @@unique([doctorId, date, time])
+  @@index([doctorId, date])
+
   @@map("appointments")
 }
 
