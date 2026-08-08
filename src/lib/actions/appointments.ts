@@ -2,7 +2,15 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { prisma } from "../prisma";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, Prisma } from "@prisma/client";
+
+// normalize "2026-08-09" to a stable UTC midnight so that the same slot always
+// produces the same stored value - the unique constraint compares exact timestamps.
+function toDateOnly(date: string) {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) throw new Error("Invalid date");
+  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+}
 
 function transformAppointment(appointment: any) {
   return {
@@ -101,7 +109,7 @@ export async function getBookedTimeSlots(doctorId: string, date: string) {
     const appointments = await prisma.appointment.findMany({
       where: {
         doctorId,
-        date: new Date(date),
+        date: toDateOnly(date),
         status: {
           in: ["CONFIRMED", "COMPLETED"], // consider both confirmed and completed appointments as blocking
         },
@@ -123,23 +131,52 @@ interface BookAppointmentInput {
   reason?: string;
 }
 
-export async function bookAppointment(input: BookAppointmentInput) {
+// not exported: a "use server" file may only export async functions
+const SLOT_TAKEN_MESSAGE = "That time slot has just been booked. Please pick another one.";
+
+// NOTE: a "use server" module may only export async functions, so failures are
+// returned as data rather than thrown. This is also the only way the message
+// survives to the client - Next.js redacts thrown server action errors in
+// production and replaces them with a generic digest.
+export type BookAppointmentResult =
+  | { success: true; appointment: ReturnType<typeof transformAppointment> }
+  | { success: false; message: string; slotTaken?: boolean };
+
+export async function bookAppointment(input: BookAppointmentInput): Promise<BookAppointmentResult> {
+  const { userId } = await auth();
+  if (!userId) return { success: false, message: "You must be logged in to book an appointment" };
+
+  if (!input.doctorId || !input.date || !input.time) {
+    return { success: false, message: "Doctor, date, and time are required" };
+  }
+
+  let date: Date;
   try {
-    const { userId } = await auth();
-    if (!userId) throw new Error("You must be logged in to book an appointment");
+    date = toDateOnly(input.date);
+  } catch {
+    return { success: false, message: "Invalid appointment date" };
+  }
 
-    if (!input.doctorId || !input.date || !input.time) {
-      throw new Error("Doctor, date, and time are required");
-    }
+  const user = await prisma.user.findUnique({ where: { clerkId: userId } });
+  if (!user) {
+    return { success: false, message: "User not found. Please ensure your account is properly set up." };
+  }
 
-    const user = await prisma.user.findUnique({ where: { clerkId: userId } });
-    if (!user) throw new Error("User not found. Please ensure your account is properly set up.");
+  try {
+    // the create below is what actually enforces this - the unique constraint on
+    // (doctorId, date, time) rejects a second booking even if two requests arrive
+    // at the same instant. we only pre-check to fail fast with a clear message.
+    const taken = await prisma.appointment.findFirst({
+      where: { doctorId: input.doctorId, date, time: input.time },
+      select: { id: true },
+    });
+    if (taken) return { success: false, message: SLOT_TAKEN_MESSAGE, slotTaken: true };
 
     const appointment = await prisma.appointment.create({
       data: {
         userId: user.id,
         doctorId: input.doctorId,
-        date: new Date(input.date),
+        date,
         time: input.time,
         reason: input.reason || "General consultation",
         status: "CONFIRMED",
@@ -156,10 +193,16 @@ export async function bookAppointment(input: BookAppointmentInput) {
       },
     });
 
-    return transformAppointment(appointment);
+    return { success: true, appointment: transformAppointment(appointment) };
   } catch (error) {
+    // P2002 = unique constraint violation. another request won the race between
+    // our pre-check and our insert.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      return { success: false, message: SLOT_TAKEN_MESSAGE, slotTaken: true };
+    }
+
     console.error("Error booking appointment:", error);
-    throw new Error("Failed to book appointment. Please try again later.");
+    return { success: false, message: "Failed to book appointment. Please try again later." };
   }
 }
 

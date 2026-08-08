@@ -4,7 +4,7 @@ import { MicIcon, CalendarIcon } from "lucide-react";
 
 function CTA() {
   return (
-    <section className="relative py-20 px-6 overflow-hidden bg-gradient-to-br from-muted/10 via-background to-muted/5">
+    <section className="relative py-[clamp(3rem,7vh,8rem)] px-6 overflow-hidden bg-gradient-to-br from-muted/10 via-background to-muted/5">
       {/* Subtle Background Pattern */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,hsl(var(--primary)/0.03),transparent_70%)]"></div>
 
@@ -69,13 +69,14 @@ function CTA() {
                 {/* Subtle glow */}
                 <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-transparent rounded-2xl blur-xl scale-110"></div>
 
+                {/* real file is 1024x1536 (2:3) - declaring 300x300 squashed it into a square */}
                 <Image
                   src="/cta.png"
                   alt="DentWise AI Assistant"
-                  width={300}
-                  height={300}
-                  className="relative w-80 h-auto drop-shadow-xl hover:scale-105 transition-transform duration-500"
-                  priority
+                  width={1024}
+                  height={1536}
+                  sizes="(max-width: 1024px) 70vw, 320px"
+                  className="relative w-72 max-w-full h-auto object-contain drop-shadow-xl hover:scale-105 transition-transform duration-500"
                 />
               </div>
 

@@ -40,7 +40,7 @@ export default function RootLayout({
           },
         }}
       >
-        <html lang="en">
+        <html lang="en" className="scroll-smooth">
           <body className={`${geistSans.variable} ${geistMono.variable} antialiased dark`}>
             {/* this is done in the home page component */}
             {/* <UserSync /> */}

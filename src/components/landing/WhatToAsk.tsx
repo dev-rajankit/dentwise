@@ -3,10 +3,13 @@ import Image from "next/image";
 
 function WhatToAsk() {
   return (
-    <section className="relative py-32 px-6 overflow-hidden bg-gradient-to-b from-background to-muted/20">
+    <section
+      id="about"
+      className="relative scroll-mt-20 py-[clamp(3rem,7vh,8rem)] px-6 overflow-hidden bg-gradient-to-b from-background to-muted/20"
+    >
       <div className="relative z-10 max-w-7xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-20">
+        <div className="text-center mb-[clamp(2rem,5vh,5rem)]">
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary/5 to-primary/10 rounded-full border border-primary/10 backdrop-blur-sm mb-6">
             <MessageCircleIcon className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium text-primary">AI-Powered Conversations</span>
@@ -133,12 +136,14 @@ function WhatToAsk() {
           {/* Right Side - AI Illustration */}
           <div className="bg-gradient-to-br from-card/90 to-card/60 backdrop-blur-xl rounded-3xl p-8 border border-border/50 hover:border-primary/30 transition-all duration-500">
             <div className="flex items-center justify-center h-full">
+              {/* real file is 1024x1536 (2:3), not square */}
               <Image
                 src="/confused.png"
                 alt="AI Assistant"
-                width={500}
-                height={500}
-                className="w-full h-auto max-w-lg object-contain"
+                width={1024}
+                height={1536}
+                sizes="(max-width: 1024px) 80vw, 400px"
+                className="w-auto h-auto max-h-[28rem] max-w-full object-contain"
               />
             </div>
           </div>

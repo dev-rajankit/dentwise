@@ -4,8 +4,10 @@ import { CalendarIcon, MicIcon, StarIcon } from "lucide-react";
 import Image from "next/image";
 
 function Hero() {
+  // min-h-screen (not h-screen): the section grows to fit the hero image
+  // instead of overflow-hidden clipping the bottom off it
   return (
-    <section className="relative h-screen flex items-center overflow-hidden pt-20">
+    <section className="relative min-h-screen flex items-center overflow-hidden py-20">
       {/* GRID BG  */}
       <div className="absolute inset-0 bg-gradient-to-br from-background via-muted/5 to-primary/5">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#f1f5f9_1px,transparent_1px),linear-gradient(to_bottom,#f1f5f9_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_110%)] opacity-20"></div>
@@ -136,12 +138,17 @@ function Hero() {
               <div className="absolute -top-4 -left-4 w-24 h-24 bg-gradient-to-br from-primary/20 to-primary/10 rounded-2xl rotate-45 blur-xl"></div>
               <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-gradient-to-br from-primary/15 to-primary/5 rounded-full blur-2xl"></div>
 
+              {/* width/height must match the file's real 2:3 ratio (1024x1536),
+                  otherwise the browser derives a 1:1 box and squashes the image.
+                  max-h keeps it from pushing the fold too far down on desktop. */}
               <Image
                 src={"/hero.png"}
                 alt="DentWise AI"
-                width={600}
-                height={600}
-                className="w-full h-auto"
+                width={1024}
+                height={1536}
+                priority
+                sizes="(max-width: 1024px) 90vw, 45vw"
+                className="mx-auto w-auto h-auto max-h-[clamp(26rem,80vh,46rem)] max-w-full object-contain"
               />
             </div>
           </div>
