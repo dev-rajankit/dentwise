@@ -82,6 +82,21 @@ model Appointment {
 }
 
 
+// RAG knowledge base for the voice agent. the `vector` type comes from the
+// pgvector extension, which is enabled by raw SQL in the migration - prisma
+// has no native vector type, so `embedding` is declared Unsupported() and is
+// therefore invisible to prisma client. reads/writes of it must use $queryRaw.
+model KnowledgeChunk {
+  id        String   @id @default(cuid())
+  content   String
+  embedding Unsupported("vector(1536)")
+  source    String
+  createdAt DateTime @default(now())
+
+  @@map("knowledge_chunks")
+}
+
+
 enum Gender {
   MALE
   FEMALE
