@@ -11,6 +11,9 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  // migrations must not run through the Neon pooler (PgBouncer): they need a
+  // direct session for advisory locks and DDL. app queries keep using the pool.
+  directUrl = env("DIRECT_URL")
 }
 
 

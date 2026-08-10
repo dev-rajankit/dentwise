@@ -1,14 +1,8 @@
 // stores/appointment-store.ts
 import { create } from 'zustand';
-
-interface Appointment {
-  id: string;
-  doctorName: string;
-  patientEmail: string;
-  date: string;
-  time: string;
-  reason: string;
-}
+// type-only import: erased at compile time, so the "use server" module is never
+// pulled into the client bundle.
+import type { TransformedAppointment } from '@/lib/actions/appointments';
 
 interface AppointmentStore {
   // Booking state
@@ -18,7 +12,7 @@ interface AppointmentStore {
   selectedType: string;
   currentStep: number;
   showConfirmationModal: boolean;
-  bookedAppointment: Appointment | null;
+  bookedAppointment: TransformedAppointment | null;
 
   // Actions
   setSelectedDentistId: (id: string | null) => void;
@@ -27,7 +21,7 @@ interface AppointmentStore {
   setSelectedType: (type: string) => void;
   setCurrentStep: (step: number) => void;
   setShowConfirmationModal: (show: boolean) => void;
-  setBookedAppointment: (appointment: Appointment | null) => void;
+  setBookedAppointment: (appointment: TransformedAppointment | null) => void;
   
   // Complex actions
   selectDentist: (dentistId: string) => void;

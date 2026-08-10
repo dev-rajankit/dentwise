@@ -7,6 +7,7 @@ import {
   getUserAppointments,
   updateAppointmentStatus,
 } from "@/lib/actions/appointments";
+import type { TransformedAppointment } from "@/lib/actions/appointments";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export function useGetAppointments() {
@@ -36,7 +37,9 @@ export function useBookAppointment() {
   return useMutation({
     // the action returns failures as data so the message survives to production;
     // convert it back into a rejection here so onError handles it as usual
-    mutationFn: async (input: Parameters<typeof bookAppointment>[0]) => {
+    mutationFn: async (
+      input: Parameters<typeof bookAppointment>[0]
+    ): Promise<TransformedAppointment> => {
       const result = await bookAppointment(input);
       if (!result.success) throw new Error(result.message);
       return result.appointment;
