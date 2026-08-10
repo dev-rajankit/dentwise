@@ -1,5 +1,6 @@
 "use server";
 
+import { currentUser } from "@clerk/nextjs/server";
 import { Gender } from "@prisma/client";
 import { prisma } from "../prisma";
 import { generateAvatar } from "../utils";
@@ -34,6 +35,22 @@ interface CreateDoctorInput {
 }
 
 export async function createDoctor(input: CreateDoctorInput) {
+  // admin-only write: a "use server" export is network-addressable, so the /admin
+  // page's redirect guards nothing on its own. same ADMIN_EMAIL check as
+  // src/app/admin/page.tsx.
+  //
+  // outside the try: the catch below rewrites everything except P2002 into
+  // "Failed to create doctor", which would disguise an auth failure.
+  const user = await currentUser();
+  if (!user) throw new Error("You must be logged in to create a doctor");
+
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const userEmail = user.emailAddresses[0]?.emailAddress;
+
+  if (!adminEmail || userEmail !== adminEmail) {
+    throw new Error("You are not authorized to create a doctor");
+  }
+
   try {
     if (!input.name || !input.email) throw new Error("Name and email are required");
 
@@ -64,6 +81,21 @@ interface UpdateDoctorInput extends Partial<CreateDoctorInput> {
 }
 
 export async function updateDoctor(input: UpdateDoctorInput) {
+  // admin-only write: this can rename, deactivate, or change the email of ANY
+  // doctor by id. same ADMIN_EMAIL check as src/app/admin/page.tsx.
+  //
+  // outside the try: the catch below rewrites every error into "Failed to update
+  // doctor", which would disguise an auth failure as a server fault.
+  const user = await currentUser();
+  if (!user) throw new Error("You must be logged in to update a doctor");
+
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const userEmail = user.emailAddresses[0]?.emailAddress;
+
+  if (!adminEmail || userEmail !== adminEmail) {
+    throw new Error("You are not authorized to update a doctor");
+  }
+
   try {
     // validate
     if (!input.name || !input.email) throw new Error("Name and email are required");
