@@ -32,43 +32,98 @@ type ToolCall = {
   function?: { name?: string; arguments?: unknown };
 };
 
-/**
- * Vapi's docs show the tool call carrying `name`/`arguments` at the top level,
- * while some payloads nest them under `function` (the OpenAI-style shape), and
- * `arguments` may arrive as an object or as a JSON-encoded string. All variants
- * are accepted rather than betting on one and failing silently in production.
- */
-function extractToolCall(body: unknown): {
-  toolCallId?: string;
-  question?: string;
-} {
-  const message = (
-    body as { message?: { toolCallList?: ToolCall[]; toolCalls?: ToolCall[] } }
-  )?.message;
-  const call = message?.toolCallList?.[0] ?? message?.toolCalls?.[0];
-  if (!call) return {};
+type VapiBody = {
+  question?: unknown;
+  message?: {
+    toolCallList?: ToolCall[];
+    toolCalls?: ToolCall[];
+  };
+};
 
-  const rawArgs = call.arguments ?? call.function?.arguments;
-  let args: Record<string, unknown> | undefined;
+/** Non-empty strings only - a blank argument is as useless as a missing one. */
+function asQuestion(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
+}
 
-  if (typeof rawArgs === "string") {
-    try {
-      args = JSON.parse(rawArgs);
-    } catch {
-      args = undefined;
-    }
-  } else if (rawArgs && typeof rawArgs === "object") {
-    args = rawArgs as Record<string, unknown>;
+/** Reads `.question` off an arguments object. */
+function fromArgsObject(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  return asQuestion((raw as Record<string, unknown>).question);
+}
+
+/** Reads `.question` off a JSON-encoded arguments string. */
+function fromArgsString(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  try {
+    return fromArgsObject(JSON.parse(raw));
+  } catch {
+    return undefined;
   }
+}
 
-  const question = args?.question;
+/**
+ * Vapi sends different payload shapes depending on the tool type (custom-tool
+ * webhook vs "API Request"), and its docs disagree about whether `arguments` is
+ * an object or a JSON-encoded string. Every known shape is tried in a fixed
+ * order; the first that yields a non-empty string wins.
+ *
+ * The path labels are reported verbatim in the 400 response so a future format
+ * change is diagnosable straight from the log, without another debug cycle.
+ */
+const QUESTION_PATHS = [
+  "message.toolCallList[0].arguments.question",
+  "message.toolCalls[0].function.arguments.question (object)",
+  "question",
+  "message.toolCalls[0].function.arguments (JSON string) .question",
+  "message.toolCalls[0].arguments.question (object or JSON string)",
+] as const;
+
+function extractToolCall(body: unknown): {
+  toolCallId: string;
+  question?: string;
+  triedPaths: readonly string[];
+  topLevelKeys: string[];
+} {
+  const typed = (body ?? {}) as VapiBody;
+  const message = typed.message;
+  const listCall = message?.toolCallList?.[0];
+  const legacyCall = message?.toolCalls?.[0];
+
+  const question =
+    // a. current webhook format (object or JSON string)
+    fromArgsObject(listCall?.arguments) ??
+    fromArgsString(listCall?.arguments) ??
+    // b. legacy webhook variant, arguments as an object
+    fromArgsObject(legacyCall?.function?.arguments) ??
+    // c. direct parameter format - what the "API Request" tool type sends
+    asQuestion(typed.question) ??
+    // d. legacy variant with arguments as a JSON-encoded string
+    fromArgsString(legacyCall?.function?.arguments) ??
+    // e. legacy variant without the `function` wrapper (kept from phase 6)
+    fromArgsObject(legacyCall?.arguments) ??
+    fromArgsString(legacyCall?.arguments);
+
+  // the simple format carries no tool call id; synthesise one so the response
+  // still has vapi's expected structure.
+  const toolCallId = listCall?.id ?? legacyCall?.id ?? `unknown-${Date.now()}`;
+
   return {
-    toolCallId: call.id,
-    question: typeof question === "string" ? question : undefined,
+    toolCallId,
+    question,
+    triedPaths: QUESTION_PATHS,
+    // keys only, never values - the body may carry caller-identifying data.
+    topLevelKeys:
+      body && typeof body === "object" ? Object.keys(body as object) : [],
   };
 }
 
 export async function POST(request: Request) {
+  // 🔍 TEMPORARY DEBUG - delete this block once the vapi payload shape is confirmed.
+  const clonedBody = await request.clone().json();
+  console.log("🔍 VAPI RAW REQUEST:", JSON.stringify(clonedBody, null, 2));
+
   // 1. auth first - before any embedding call or database access.
   const expected = process.env.VAPI_TOOL_SECRET;
   if (!expected) {
@@ -95,24 +150,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { toolCallId, question } = extractToolCall(body);
+  const { toolCallId, question, triedPaths, topLevelKeys } =
+    extractToolCall(body);
 
-  // 3. validate. without a toolCallId vapi cannot match a result to its call,
-  // so there is nothing useful to return in the results shape.
-  if (!toolCallId) {
+  // 3. validate. a missing toolCallId is no longer fatal - the simple "API
+  // Request" format has none, and extractToolCall synthesises a fallback.
+  if (!question) {
     console.error(
-      "❌ No tool call id in payload:",
-      JSON.stringify(body).slice(0, 500),
+      `❌ No 'question' found. top-level keys: [${topLevelKeys.join(", ")}]. tried: ${triedPaths.join(" | ")}`,
     );
     return NextResponse.json(
-      { error: "Missing tool call id" },
-      { status: 400 },
-    );
-  }
-  if (!question || question.trim().length === 0) {
-    console.error(`❌ Missing 'question' argument for tool call ${toolCallId}`);
-    return NextResponse.json(
-      { error: "Missing 'question' argument" },
+      {
+        error: "Missing 'question' argument",
+        // keys and path labels only - no request values are echoed back.
+        receivedTopLevelKeys: topLevelKeys,
+        triedPaths,
+      },
       { status: 400 },
     );
   }
