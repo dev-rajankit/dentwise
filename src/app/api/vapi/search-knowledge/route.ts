@@ -15,6 +15,13 @@ const SECRET_HEADER = "x-vapi-secret";
 const NO_RESULTS_MESSAGE =
   "No relevant information was found in the knowledge base for this question.";
 
+// Vapi's tool-response parser fails on line breaks - its docs require
+// single-line strings, and a `result` containing "\n" is silently dropped, so
+// the model answers as if the tool returned nothing. Collapse all whitespace.
+function toSingleLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /** Constant-time compare so the secret can't be probed a byte at a time. */
 function secretMatches(provided: string, expected: string): boolean {
   const a = Buffer.from(provided);
@@ -180,9 +187,13 @@ export async function POST(request: Request) {
     const result =
       chunks.length === 0
         ? NO_RESULTS_MESSAGE
-        : chunks
-            .map((chunk, i) => `[${i + 1}] (${chunk.source}) ${chunk.content}`)
-            .join("\n\n");
+        : toSingleLine(
+            chunks
+              .map(
+                (chunk, i) => `[${i + 1}] (${chunk.source}) ${chunk.content}`,
+              )
+              .join(" | "),
+          );
 
     console.log(
       `🔎 knowledge search "${question.slice(0, 60)}" -> ${chunks.length} chunk(s)`,

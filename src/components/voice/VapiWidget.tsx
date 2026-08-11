@@ -13,6 +13,40 @@ interface Message {
   timestamp: Date;
 }
 
+// Vapi emits plain objects, not Errors, so `error.message` is usually
+// undefined - which is how a real cause turns into a bare "Connection failed".
+// Dig through the shapes it actually uses before giving up.
+function describeVapiError(error: unknown): string {
+  if (!error) return "Unknown error (empty payload)";
+  if (typeof error === "string") return error;
+  if (error instanceof Error && error.message) return error.message;
+
+  const e = error as Record<string, unknown>;
+  const flatten = (v: unknown): string | undefined => {
+    if (typeof v === "string" && v.trim()) return v;
+    if (Array.isArray(v) && v.length) return v.map(String).join("; ");
+    return undefined;
+  };
+
+  const direct = flatten(e.message) ?? flatten(e.errorMsg) ?? flatten(e.msg);
+  if (direct) return direct;
+
+  const nested = e.error;
+  if (typeof nested === "string" && nested.trim()) return nested;
+  if (nested && typeof nested === "object") {
+    const n = nested as Record<string, unknown>;
+    const inner = flatten(n.message) ?? flatten(n.msg);
+    if (inner) return inner;
+  }
+
+  // last resort: show the raw payload rather than hiding it.
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 function VapiWidget() {
   const [callActive, setCallActive] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -179,16 +213,24 @@ function VapiWidget() {
     };
 
     const handleError = (error: any) => {
-      console.error("❌ Vapi Error:", error);
+      const detail = describeVapiError(error);
+      console.error("❌ Vapi Error:", detail, "| raw payload:", error);
       setConnecting(false);
       setCallActive(false);
-      
-      // Add error message to UI
-      setMessages((prev) => [...prev, {
-        content: `Error: ${error.message || "Connection failed"}`,
-        role: "system",
-        timestamp: new Date()
-      }]);
+
+      // Add error message to UI. Vapi often fires several error events for one
+      // failure, so collapse consecutive duplicates instead of stacking them.
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === "system" && last.content === `Error: ${detail}`) {
+          return prev;
+        }
+        return [...prev, {
+          content: `Error: ${detail}`,
+          role: "system",
+          timestamp: new Date()
+        }];
+      });
     };
 
     // Register event listeners
@@ -220,20 +262,38 @@ function VapiWidget() {
       console.log("🛑 Stopping call...");
       vapi.stop();
     } else {
+      // NEXT_PUBLIC_ vars are inlined at build time. If they were never added
+      // to the deployment's environment they are simply undefined here, and
+      // vapi.start(undefined) fails with an opaque connection error - so name
+      // the real problem instead.
+      const publicKey = process.env.NEXT_PUBLIC_VAPI_API_KEY;
+      const assistantId = process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID;
+      const missing = [
+        !publicKey && "NEXT_PUBLIC_VAPI_API_KEY",
+        !assistantId && "NEXT_PUBLIC_VAPI_ASSISTANT_ID",
+      ].filter(Boolean);
+
+      if (missing.length > 0) {
+        const detail = `Voice is not configured: ${missing.join(" and ")} missing from this deployment's environment variables.`;
+        console.error("❌", detail);
+        setMessages([{ content: detail, role: "system", timestamp: new Date() }]);
+        return;
+      }
+
       try {
         setConnecting(true);
         setMessages([]);
         setCallEnded(false);
 
-        console.log("📞 Starting call with assistant ID:", process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID);
-        await vapi.start(process.env.NEXT_PUBLIC_VAPI_ASSISTANT_ID);
+        console.log("📞 Starting call with assistant ID:", assistantId);
+        await vapi.start(assistantId);
       } catch (error) {
         console.error("❌ Failed to start call:", error);
         setConnecting(false);
         
         // Show error in UI
         setMessages([{
-          content: `Failed to start call: ${error instanceof Error ? error.message : "Unknown error"}`,
+          content: `Failed to start call: ${describeVapiError(error)}`,
           role: "system",
           timestamp: new Date()
         }]);
