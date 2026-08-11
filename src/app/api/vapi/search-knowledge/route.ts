@@ -141,20 +141,41 @@ export async function POST(request: Request) {
     );
   }
 
-  // trimmed: secrets pasted into a dashboard field routinely pick up a
+  // Vapi can present the secret two ways depending on how the tool is
+  // configured: a custom `x-vapi-secret` header, or a Bearer Token credential
+  // that sends `Authorization: Bearer <token>`. Accept either, so the dashboard
+  // choice doesn't have to be re-litigated in code.
+  //
+  // Trimmed: secrets pasted into a dashboard field routinely pick up a
   // trailing space or newline, which would otherwise fail on length alone.
-  const provided = request.headers.get(SECRET_HEADER)?.trim();
-  if (!provided || !secretMatches(provided, expected.trim())) {
-    // distinguish "header never arrived" from "header arrived but wrong" -
-    // they have completely different fixes. lengths only, never the values.
+  const wanted = expected.trim();
+  const rawSecretHeader = request.headers.get(SECRET_HEADER)?.trim();
+  const bearer = request.headers
+    .get("authorization")
+    ?.replace(/^Bearer\s+/i, "")
+    .trim();
+
+  // a duplicate header (custom header AND a credential both sending
+  // x-vapi-secret) arrives comma-joined as "secret, secret", so test the parts
+  // too rather than failing on a config overlap that is otherwise correct.
+  const candidates = [rawSecretHeader, bearer]
+    .filter((v): v is string => !!v)
+    .flatMap((v) => [v, ...v.split(",").map((part) => part.trim())]);
+  const authorized = candidates.some((v) => secretMatches(v, wanted));
+
+  if (!authorized) {
+    // distinguish "nothing arrived" from "arrived but wrong" - they have
+    // completely different fixes. lengths and names only, never values.
     const headerNames = [...request.headers.keys()].filter((h) =>
       /secret|auth|token|vapi/i.test(h),
     );
     console.warn(
       `🚫 Rejected knowledge-search call: ${
-        provided
-          ? `'${SECRET_HEADER}' present but did not match (received length ${provided.length}, expected length ${expected.trim().length})`
-          : `'${SECRET_HEADER}' header absent`
+        candidates.length === 0
+          ? `no credential presented (neither '${SECRET_HEADER}' nor 'authorization')`
+          : `credential presented but did not match (lengths received: [${candidates
+              .map((c) => c.length)
+              .join(", ")}], expected ${wanted.length})`
       }. auth-ish headers seen: [${headerNames.join(", ") || "none"}]`,
     );
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
