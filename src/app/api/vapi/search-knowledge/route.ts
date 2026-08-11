@@ -141,10 +141,21 @@ export async function POST(request: Request) {
     );
   }
 
-  const provided = request.headers.get(SECRET_HEADER);
-  if (!provided || !secretMatches(provided, expected)) {
+  // trimmed: secrets pasted into a dashboard field routinely pick up a
+  // trailing space or newline, which would otherwise fail on length alone.
+  const provided = request.headers.get(SECRET_HEADER)?.trim();
+  if (!provided || !secretMatches(provided, expected.trim())) {
+    // distinguish "header never arrived" from "header arrived but wrong" -
+    // they have completely different fixes. lengths only, never the values.
+    const headerNames = [...request.headers.keys()].filter((h) =>
+      /secret|auth|token|vapi/i.test(h),
+    );
     console.warn(
-      "🚫 Rejected knowledge-search call: missing or invalid secret",
+      `🚫 Rejected knowledge-search call: ${
+        provided
+          ? `'${SECRET_HEADER}' present but did not match (received length ${provided.length}, expected length ${expected.trim().length})`
+          : `'${SECRET_HEADER}' header absent`
+      }. auth-ish headers seen: [${headerNames.join(", ") || "none"}]`,
     );
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -199,8 +210,13 @@ export async function POST(request: Request) {
       `🔎 knowledge search "${question.slice(0, 60)}" -> ${chunks.length} chunk(s)`,
     );
 
+    // dual shape on purpose. a custom-tool webhook reads results[].result and
+    // ignores the rest; an "API Request" tool appears to hand the raw response
+    // body straight to the model (vapi rendered our raw 401 body as the tool
+    // result), so a top-level `result` string keeps that case readable instead
+    // of feeding it the whole envelope as noise.
     return NextResponse.json(
-      { results: [{ toolCallId, result }] },
+      { result, results: [{ toolCallId, result }] },
       { status: 200 },
     );
   } catch (error) {
