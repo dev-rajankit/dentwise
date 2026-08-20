@@ -41,3 +41,7 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+/ZUSTAND_APPOINTMENT_SCHEDULING.md
+/FIXES_2026-08-08.md
+/RAG_VOICE_AGENT.md

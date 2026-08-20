@@ -3,6 +3,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { prisma } from "../prisma";
 import { AppointmentStatus, Prisma } from "@prisma/client";
+import { revalidatePath } from "next/cache";
 
 // normalize "2026-08-09" to a stable UTC midnight so that the same slot always
 // produces the same stored value - the unique constraint compares exact timestamps.
@@ -251,5 +252,88 @@ export async function updateAppointmentStatus(input: { id: string; status: Appoi
   } catch (error) {
     console.error("Error updating appointment:", error);
     throw new Error("Failed to update appointment");
+  }
+}
+
+// cancelling is a HARD DELETE: the row is removed, which is what frees the slot.
+// AppointmentStatus has no CANCELLED member, so there is nothing to flip to - and
+// because getBookedTimeSlots, bookAppointment's pre-check and the
+// @@unique([doctorId, date, time]) constraint are all row-existence based, the
+// deleted slot becomes bookable again with no schema change.
+//
+// DELIBERATE TRADE-OFF: this destroys all history of the cancelled appointment.
+export type CancelAppointmentResult =
+  | { success: true; id: string }
+  | { success: false; message: string };
+
+export async function cancelAppointment(appointmentId: string): Promise<CancelAppointmentResult> {
+  // failures are returned as data, not thrown - same reason as bookAppointment
+  // above: Next.js redacts thrown server action errors in production behind a
+  // generic digest, which would make "not authorized" indistinguishable from
+  // "server error" on the client. every check below therefore returns early,
+  // before the try, so no catch can rewrite its message.
+  const { userId } = await auth();
+  if (!userId) return { success: false, message: "You must be logged in to cancel an appointment" };
+
+  if (!appointmentId) return { success: false, message: "Appointment id is required" };
+
+  const user = await prisma.user.findUnique({ where: { clerkId: userId } });
+  if (!user) {
+    return { success: false, message: "User not found. Please ensure your account is properly set up." };
+  }
+
+  // fetch before deleting: we cannot authorize an appointment we have not read,
+  // and delete({ where: { id } }) alone would happily remove anyone's row.
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    select: { id: true, userId: true, date: true },
+  });
+  if (!appointment) return { success: false, message: "Appointment not found" };
+
+  // AUTHORIZATION. appointmentId arrives from the client, so ownership is the
+  // only thing standing between patient A and patient B's appointment.
+  if (appointment.userId !== user.id) {
+    // not their own - the sole other permitted caller is the admin. same
+    // ADMIN_EMAIL comparison as getAppointments/updateAppointmentStatus above.
+    // checked lazily so the common owner path costs no extra Clerk round-trip.
+    const clerkUser = await currentUser();
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const userEmail = clerkUser?.emailAddresses[0]?.emailAddress;
+
+    if (!adminEmail || userEmail !== adminEmail) {
+      return { success: false, message: "You are not authorized to cancel this appointment" };
+    }
+  }
+
+  // BUSINESS RULE: a past appointment already happened - deleting it would erase
+  // the visit and skew getUserAppointmentStats' COMPLETED count. compared at UTC
+  // midnight because that is how toDateOnly() normalizes every stored date, so
+  // today's appointments stay cancellable.
+  const now = new Date();
+  const todayDateOnly = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (appointment.date.getTime() < todayDateOnly.getTime()) {
+    return { success: false, message: "This appointment has already taken place and cannot be cancelled" };
+  }
+
+  try {
+    await prisma.appointment.delete({ where: { id: appointment.id } });
+
+    // /dashboard's NextAppointment and DentalHealthOverview are async server
+    // components reading these actions directly - they have no react-query key,
+    // so invalidateQueries in the hook cannot reach them. this drops the router
+    // cache entry instead. /appointments is revalidated for its server shell.
+    revalidatePath("/dashboard");
+    revalidatePath("/appointments");
+
+    return { success: true, id: appointment.id };
+  } catch (error) {
+    // P2025 = record no longer exists; someone deleted it between our read and
+    // our delete. the caller's goal is already satisfied, so report success.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+      return { success: true, id: appointment.id };
+    }
+
+    console.error("Error cancelling appointment:", error);
+    return { success: false, message: "Failed to cancel appointment. Please try again later." };
   }
 }
