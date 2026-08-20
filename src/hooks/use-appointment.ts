@@ -2,6 +2,7 @@
 
 import {
   bookAppointment,
+  cancelAppointment,
   getAppointments,
   getBookedTimeSlots,
   getUserAppointments,
@@ -65,6 +66,38 @@ export function useUserAppointments() {
   });
 
   return result;
+}
+
+export function useCancelAppointment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    // like bookAppointment, the action returns failures as data so the message
+    // survives Next's production error redaction; turn it back into a rejection
+    // so error.message reaching onError/the component is the REAL reason
+    // ("You are not authorized to cancel this appointment"), not a generic one.
+    mutationFn: async (appointmentId: string): Promise<string> => {
+      const result = await cancelAppointment(appointmentId);
+      if (!result.success) throw new Error(result.message);
+      return result.id;
+    },
+    onSuccess: () => {
+      // the patient's own list - the cancelled appointment must disappear from
+      // "Your Upcoming Appointments" without a manual refresh
+      queryClient.invalidateQueries({ queryKey: ["getUserAppointments"] });
+
+      // the admin table (RecentAppointments) - the row is gone from the DB, so a
+      // logged-in admin viewing /admin would otherwise show a phantom appointment
+      queryClient.invalidateQueries({ queryKey: ["getAppointments"] });
+
+      // availability. the key is ["getBookedTimeSlots", doctorId, date], so this
+      // PREFIX invalidates every cached doctor/date pair - not just the one we
+      // cancelled. that matters because the booking flow may hold cached slots
+      // for other dates, and the freed slot must read as available immediately.
+      queryClient.invalidateQueries({ queryKey: ["getBookedTimeSlots"] });
+    },
+    onError: (error) => console.error("Failed to cancel appointment:", error),
+  });
 }
 
 export function useUpdateAppointmentStatus() {

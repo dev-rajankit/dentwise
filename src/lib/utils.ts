@@ -1,8 +1,60 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { AppointmentStatus } from "@prisma/client";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+// ---------------------------------------------------------------------------
+// appointment date helpers
+//
+// every appointment date moves through the app as "YYYY-MM-DD" derived from a
+// UTC value - toDateOnly() stores UTC midnight and transformAppointment()
+// formats with .toISOString().split("T")[0]. so comparing those strings
+// lexicographically is exact: no Date re-parsing, no local-vs-UTC drift, and
+// the client reaches the same verdict the server does.
+//
+// structurally typed rather than tied to TransformedAppointment so these also
+// work for the admin table or any future appointment shape.
+// ---------------------------------------------------------------------------
+
+export function getTodayDateOnly() {
+  return new Date().toISOString().split("T")[0];
+}
+
+type AppointmentLike = { date: string; time: string; status: AppointmentStatus };
+
+// today counts as upcoming - the appointment has not happened yet
+export function isUpcomingAppointment(appointment: Pick<AppointmentLike, "date">) {
+  return appointment.date >= getTodayDateOnly();
+}
+
+// MUST stay in sync with cancelAppointment's server-side rule, so the button is
+// never offered for something the action will reject (and never hidden for
+// something it would allow).
+export function isCancellableAppointment(appointment: Pick<AppointmentLike, "date" | "status">) {
+  return appointment.status === "CONFIRMED" && isUpcomingAppointment(appointment);
+}
+
+// splits one list into the two sections the UI shows, each in the order that
+// reads best: upcoming soonest-first, past most-recent-first. sorted explicitly
+// rather than relying on the query's orderBy, so any caller gets it right.
+export function partitionAppointments<T extends AppointmentLike>(appointments: T[]) {
+  const upcoming: T[] = [];
+  const past: T[] = [];
+
+  for (const appointment of appointments) {
+    if (isUpcomingAppointment(appointment)) upcoming.push(appointment);
+    else past.push(appointment);
+  }
+
+  const byDateTime = (a: T, b: T) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time);
+
+  upcoming.sort(byDateTime);
+  past.sort((a, b) => byDateTime(b, a));
+
+  return { upcoming, past };
 }
 
 // Was avatar.iran.liara.run, which is unreachable (DNS resolves, connection fails)

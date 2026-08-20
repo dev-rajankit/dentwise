@@ -5,14 +5,22 @@ import DoctorSelectionStep from "@/components/appointments/DoctorSelectionStep";
 import ProgressSteps from "@/components/appointments/ProgressSteps";
 import TimeSelectionStep from "@/components/appointments/TimeSelectionStep";
 import Navbar from "@/components/Navbar";
-import DoctorAvatar from "@/components/DoctorAvatar";
+import AppointmentsSection from "@/components/appointments/AppointmentsSection";
+import CancelAppointmentDialog from "@/components/appointments/CancelAppointmentDialog";
 import { useBookAppointment, useUserAppointments } from "@/hooks/use-appointment";
-import { APPOINTMENT_TYPES } from "@/lib/utils";
+import type { TransformedAppointment } from "@/lib/actions/appointments";
+import { APPOINTMENT_TYPES, partitionAppointments } from "@/lib/utils";
 import { format } from "date-fns";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppointmentStore } from "@/stores/appointment-store";
 
 function AppointmentsPage() {
+  // the appointment the confirmation dialog is asking about; null = dialog closed
+  const [appointmentToCancel, setAppointmentToCancel] = useState<TransformedAppointment | null>(
+    null
+  );
+
   // Get state and actions from Zustand store
   const {
     selectedDentistId,
@@ -34,6 +42,15 @@ function AppointmentsPage() {
 
   const bookAppointmentMutation = useBookAppointment();
   const { data: userAppointments = [] } = useUserAppointments();
+
+  // getUserAppointments returns the patient's ENTIRE history with no date
+  // filter, which is why this page used to list finished appointments under
+  // "Upcoming". split it here rather than in the query so both sections come
+  // from one fetch and one cache entry.
+  const { upcoming, past } = useMemo(
+    () => partitionAppointments(userAppointments),
+    [userAppointments]
+  );
 
   const handleBookAppointment = async () => {
     if (!selectedDentistId || !selectedDate || !selectedTime) {
@@ -157,49 +174,32 @@ function AppointmentsPage() {
         />
       )}
 
-      {/* SHOW EXISTING APPOINTMENTS FOR THE CURRENT USER */}
-{userAppointments.length > 0 && (
-  <div className="container mx-auto px-4 py-8">
-    <h2 className="text-xl font-semibold mb-4 text-foreground">
-      Your Upcoming Appointments
-    </h2>
+      {/* THE CURRENT USER'S APPOINTMENTS, SPLIT INTO UPCOMING AND PAST */}
+      {userAppointments.length > 0 && (
+        <div className="container mx-auto px-4 py-8">
+          <AppointmentsSection
+            title="Your Upcoming Appointments"
+            appointments={upcoming}
+            emptyMessage="You have no upcoming appointments. Book one above."
+            onCancel={setAppointmentToCancel}
+          />
 
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-      {userAppointments.map((appointment) => (
-        <div
-          key={appointment.id}
-          className="bg-card border border-border rounded-lg p-4 shadow-sm transition hover:scale-[1.02] hover:shadow-md"
-        >
-          <div className="flex items-center gap-3 mb-3">
-            <DoctorAvatar
-              name={appointment.doctorName}
-              imageUrl={appointment.doctorImageUrl}
-              className="size-10 text-xs"
-            />
-
-            <div>
-              <p className="font-medium text-sm text-foreground">
-                {appointment.doctorName}
-              </p>
-              <p className="text-muted-foreground text-xs">
-                {appointment.reason}
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-1 text-sm text-muted-foreground">
-            <p>
-              📅 {format(new Date(appointment.date), "MMM d, yyyy")}
-            </p>
-            <p>🕐 {appointment.time}</p>
-          </div>
+          {/* no onCancel: a past appointment cannot be cancelled, and cancelling
+              is a hard delete so there would be nothing left to show anyway */}
+          <AppointmentsSection
+            title="Past Appointments"
+            appointments={past}
+            isPast
+            initialVisibleCount={6}
+          />
         </div>
-      ))}
-    </div>
-  </div>
-)}
+      )}
 
-
+      <CancelAppointmentDialog
+        isOpen={!!appointmentToCancel}
+        onClose={() => setAppointmentToCancel(null)}
+        appointment={appointmentToCancel}
+      />
     </>
   );
 }
